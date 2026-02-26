@@ -50,6 +50,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "connect-pg-simple": "^10.0.0",
+    "cross-env": "^7.0.3",
     "date-fns": "^3.6.0",
     "dotenv": "^17.3.1",
     "drizzle-orm": "^0.39.3",
@@ -84,7 +85,6 @@
     "zod-validation-error": "^3.4.0"
   },
   "devDependencies": {
-    "cross-env": "^7.0.3",
     "@replit/vite-plugin-cartographer": "^0.4.4",
     "@replit/vite-plugin-dev-banner": "^0.1.1",
     "@replit/vite-plugin-runtime-error-modal": "^0.0.3",
