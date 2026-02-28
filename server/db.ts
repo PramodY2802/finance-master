@@ -1,12 +1,8 @@
 import { config } from "dotenv";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
+import { join } from "path";
 
-// determine __dirname for this module (ESM)
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-// load environment variables from server/.env before anything else
-config({ path: join(__dirname, ".env") });
+// In production the bundle lives in dist/, so resolve from repo root.
+config({ path: join(process.cwd(), "server", ".env") });
 
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";

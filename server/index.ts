@@ -1,13 +1,8 @@
 import { config } from "dotenv";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
+import { join } from "path";
 
-// compute dirname equivalent for ES modules
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-// always load .env file from the server directory so env vars are available
-// regardless of where the process is started
-config({ path: join(__dirname, ".env") });
+// In production the bundle lives in dist/, so resolve from repo root.
+config({ path: join(process.cwd(), "server", ".env") });
 
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
