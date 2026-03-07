@@ -83,6 +83,43 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  private resolveRange(startDate?: string, endDate?: string): {
+    start?: Date;
+    end?: Date;
+  } {
+    if (!startDate && !endDate) return {};
+
+    const cleanedStart = startDate?.trim() || undefined;
+    const cleanedEnd = endDate?.trim() || undefined;
+
+    if (cleanedStart && cleanedEnd) {
+      return this.buildDateRange(cleanedStart, cleanedEnd);
+    }
+
+    if (cleanedStart) {
+      // If only month-start is provided (YYYY-MM-01), treat it as full month.
+      if (/^\d{4}-\d{2}-01$/.test(cleanedStart)) {
+        const [y, m] = cleanedStart.split("-").map(Number);
+        const lastDay = new Date(y, m, 0).getDate();
+        return this.buildDateRange(
+          cleanedStart,
+          `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
+        );
+      }
+
+      return this.buildDateRange(cleanedStart, cleanedStart);
+    }
+
+    return this.buildDateRange(cleanedEnd!, cleanedEnd!);
+  }
+
+  private buildDateRange(startDate: string, endDate: string) {
+    return {
+      start: new Date(`${startDate}T00:00:00`),
+      end: new Date(`${endDate}T23:59:59.999`),
+    };
+  }
+
   async getUser(id: number): Promise<any | undefined> {
     const userResult = await db.execute(
       sql`SELECT * FROM users WHERE user_id = ${id} LIMIT 1`,
@@ -233,7 +270,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createCategory(category: InsertCategory): Promise<Category> {
-    const [created] = await db.insert(categories).values(category).returning();
+    const [created] = await db
+      .insert(categories)
+      .values({ ...category, createdAt: new Date() })
+      .returning();
     return created;
   }
 
@@ -263,11 +303,12 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(categories, eq(incomes.categoryId, categories.id))
       .$dynamic();
 
-    if (startDate && endDate) {
+    const range = this.resolveRange(startDate, endDate);
+    if (range.start && range.end) {
       query = query.where(
         and(
-          gte(incomes.date, new Date(startDate)),
-          lte(incomes.date, new Date(endDate)),
+          gte(incomes.date, range.start),
+          lte(incomes.date, range.end),
         ),
       );
     }
@@ -285,7 +326,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createIncome(income: InsertIncome): Promise<Income> {
-    const [created] = await db.insert(incomes).values(income).returning();
+    const [created] = await db
+      .insert(incomes)
+      .values({ ...income, createdAt: new Date() })
+      .returning();
     return created;
   }
 
@@ -315,11 +359,12 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(categories, eq(expenses.categoryId, categories.id))
       .$dynamic();
 
-    if (startDate && endDate) {
+    const range = this.resolveRange(startDate, endDate);
+    if (range.start && range.end) {
       query = query.where(
         and(
-          gte(expenses.date, new Date(startDate)),
-          lte(expenses.date, new Date(endDate)),
+          gte(expenses.date, range.start),
+          lte(expenses.date, range.end),
         ),
       );
     }
@@ -340,7 +385,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createExpense(expense: InsertExpense): Promise<Expense> {
-    const [created] = await db.insert(expenses).values(expense).returning();
+    const [created] = await db
+      .insert(expenses)
+      .values({ ...expense, createdAt: new Date() })
+      .returning();
     return created;
   }
 

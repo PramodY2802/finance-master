@@ -75,6 +75,7 @@ export const api = {
     stats: {
       method: 'GET' as const,
       path: '/api/dashboard' as const,
+      input: z.object({ startDate: z.string().optional(), endDate: z.string().optional() }).optional(),
       responses: {
         200: z.object({
           totalBalance: z.string(),

@@ -1,6 +1,10 @@
+import { useMemo, useState } from "react";
 import { useDashboardStats } from "@/hooks/use-dashboard";
 import { Layout } from "@/components/layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { getLast30DaysRange, getMonthRange } from "@/lib/date-range";
 import { 
   DollarSign, 
   TrendingUp, 
@@ -9,6 +13,7 @@ import {
   Loader2,
   AlertCircle
 } from "lucide-react";
+import { format } from "date-fns";
 import { 
   AreaChart, 
   Area, 
@@ -33,7 +38,19 @@ function formatCurrency(val: string | number) {
 const COLORS = ['hsl(var(--chart-1))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))'];
 
 export default function Dashboard() {
-  const { data, isLoading, error } = useDashboardStats();
+  const [filterMode, setFilterMode] = useState<"last30" | "month">("last30");
+  const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
+
+  const dateFilter = useMemo(() => {
+    if (filterMode === "month") {
+      return getMonthRange(selectedMonth);
+    }
+
+    return getLast30DaysRange();
+  }, [filterMode, selectedMonth]);
+
+  const { data, isLoading, error } = useDashboardStats(dateFilter);
+  const rangeLabel = filterMode === "last30" ? "Last 30 Days" : format(new Date(`${selectedMonth}-01`), "MMMM yyyy");
 
   if (isLoading) {
     return (
@@ -57,10 +74,10 @@ export default function Dashboard() {
   }
 
   const statCards = [
-    { title: "Total Balance", value: data.totalBalance, icon: DollarSign, color: "text-primary", bg: "bg-primary/10" },
-    { title: "Total Income", value: data.totalIncome, icon: TrendingUp, color: "text-emerald-500", bg: "bg-emerald-500/10" },
-    { title: "Total Expense", value: data.totalExpense, icon: TrendingDown, color: "text-rose-500", bg: "bg-rose-500/10" },
-    { title: "Today's Expense", value: data.todayExpense, icon: CalendarDays, color: "text-orange-500", bg: "bg-orange-500/10" },
+    { title: `${rangeLabel} Balance`, value: data.totalBalance, icon: DollarSign, color: "text-primary", bg: "bg-primary/10" },
+    { title: `${rangeLabel} Income`, value: data.totalIncome, icon: TrendingUp, color: "text-emerald-500", bg: "bg-emerald-500/10" },
+    { title: `${rangeLabel} Expense`, value: data.totalExpense, icon: TrendingDown, color: "text-rose-500", bg: "bg-rose-500/10" },
+    { title: "Selected Day Expense", value: data.todayExpense, icon: CalendarDays, color: "text-orange-500", bg: "bg-orange-500/10" },
   ];
 
   return (
@@ -68,6 +85,25 @@ export default function Dashboard() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight">Overview</h1>
         <p className="text-muted-foreground mt-1">Here's your enterprise financial summary.</p>
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-center mt-4">
+          <Button
+            type="button"
+            variant={filterMode === "last30" ? "default" : "outline"}
+            onClick={() => setFilterMode("last30")}
+            className="sm:w-auto"
+          >
+            Last 30 Days
+          </Button>
+          <Input
+            type="month"
+            value={selectedMonth}
+            onChange={(e) => {
+              setSelectedMonth(e.target.value);
+              setFilterMode("month");
+            }}
+            className="sm:w-[180px]"
+          />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -91,7 +127,7 @@ export default function Dashboard() {
         {/* Main Chart */}
         <Card className="lg:col-span-2 bg-card/50 border-border/50">
           <CardHeader>
-            <CardTitle>Income vs Expense</CardTitle>
+            <CardTitle>Income vs Expense ({rangeLabel})</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-[350px] w-full">
@@ -190,7 +226,7 @@ export default function Dashboard() {
       {/* Bar Chart */}
       <Card className="bg-card/50 border-border/50 mb-8">
         <CardHeader>
-          <CardTitle>Daily Expenses (Last 30 Days)</CardTitle>
+          <CardTitle>Daily Expenses ({rangeLabel})</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="h-[300px] w-full">

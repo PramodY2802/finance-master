@@ -42,6 +42,54 @@ function generateRefreshToken(user: { id: number; role: string; username: string
   return jwt.sign(user, REFRESH_SECRET, { expiresIn: '7d' });
 }
 
+function toLocalDateKey(value: Date | string): string {
+  const d = new Date(value);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function resolveDateRange(startDate?: string, endDate?: string): {
+  start?: Date;
+  end?: Date;
+} {
+  const cleanedStart = startDate?.trim() || undefined;
+  const cleanedEnd = endDate?.trim() || undefined;
+
+  if (!cleanedStart && !cleanedEnd) return {};
+
+  if (cleanedStart && cleanedEnd) {
+    return {
+      start: new Date(`${cleanedStart}T00:00:00`),
+      end: new Date(`${cleanedEnd}T23:59:59.999`),
+    };
+  }
+
+  if (cleanedStart) {
+    if (/^\d{4}-\d{2}-01$/.test(cleanedStart)) {
+      const [y, m] = cleanedStart.split("-").map(Number);
+      const lastDay = new Date(y, m, 0).getDate();
+      return {
+        start: new Date(`${cleanedStart}T00:00:00`),
+        end: new Date(
+          `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}T23:59:59.999`,
+        ),
+      };
+    }
+
+    return {
+      start: new Date(`${cleanedStart}T00:00:00`),
+      end: new Date(`${cleanedStart}T23:59:59.999`),
+    };
+  }
+
+  return {
+    start: new Date(`${cleanedEnd}T00:00:00`),
+    end: new Date(`${cleanedEnd}T23:59:59.999`),
+  };
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -212,43 +260,61 @@ export async function registerRoutes(
 
   app.get(api.dashboard.stats.path, async (req, res) => {
     try {
-      const incomes = await storage.getIncomes();
-      const expenses = await storage.getExpenses();
+      const query = api.dashboard.stats.input?.parse({
+        startDate: req.query.startDate,
+        endDate: req.query.endDate,
+      }) || {};
+      const startDate = query.startDate;
+      const endDate = query.endDate;
+      const incomes = await storage.getIncomes(startDate, endDate);
+      const expenses = await storage.getExpenses(startDate, endDate);
       
-      const userIncomes = incomes.filter(i => i.userId === req.user!.id);
-      const userExpenses = expenses.filter(e => e.userId === req.user!.id);
+      const range = resolveDateRange(startDate, endDate);
+      const isInRange = (value: Date | string) => {
+        const d = new Date(value);
+        if (range.start && d < range.start) return false;
+        if (range.end && d > range.end) return false;
+        return true;
+      };
+
+      const userIncomes = incomes
+        .filter(i => i.userId === req.user!.id)
+        .filter(i => isInRange(i.date));
+      const userExpenses = expenses
+        .filter(e => e.userId === req.user!.id)
+        .filter(e => isInRange(e.date));
 
       const totalIncome = userIncomes.reduce((acc, curr) => acc + Number(curr.amount), 0);
       const totalExpense = userExpenses.reduce((acc, curr) => acc + Number(curr.amount), 0);
       const totalBalance = totalIncome - totalExpense;
 
-      const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const periodEnd = endDate ? new Date(`${endDate}T23:59:59.999`) : new Date();
+      const selectedDayKey = toLocalDateKey(periodEnd);
+      const firstDayOfSelectedMonth = new Date(periodEnd.getFullYear(), periodEnd.getMonth(), 1);
 
       const todayExpense = userExpenses
-        .filter(e => new Date(e.date) >= today)
+        .filter(e => toLocalDateKey(e.date) === selectedDayKey)
         .reduce((acc, curr) => acc + Number(curr.amount), 0);
 
       const monthlyExpense = userExpenses
-        .filter(e => new Date(e.date) >= firstDayOfMonth)
+        .filter(e => new Date(e.date) >= firstDayOfSelectedMonth)
         .reduce((acc, curr) => acc + Number(curr.amount), 0);
 
       const monthlyIncome = userIncomes
-        .filter(i => new Date(i.date) >= firstDayOfMonth)
+        .filter(i => new Date(i.date) >= firstDayOfSelectedMonth)
         .reduce((acc, curr) => acc + Number(curr.amount), 0);
 
       const dateMap = new Map<string, { income: number; expense: number }>();
       
       userIncomes.forEach(i => {
-        const d = new Date(i.date).toISOString().split('T')[0];
+        const d = toLocalDateKey(i.date);
         const current = dateMap.get(d) || { income: 0, expense: 0 };
         current.income += Number(i.amount);
         dateMap.set(d, current);
       });
 
       userExpenses.forEach(e => {
-        const d = new Date(e.date).toISOString().split('T')[0];
+        const d = toLocalDateKey(e.date);
         const current = dateMap.get(d) || { income: 0, expense: 0 };
         current.expense += Number(e.amount);
         dateMap.set(d, current);
@@ -262,7 +328,7 @@ export async function registerRoutes(
 
       const dailyExpenseMap = new Map<string, number>();
       userExpenses.forEach(e => {
-        const d = new Date(e.date).toISOString().split('T')[0];
+        const d = toLocalDateKey(e.date);
         dailyExpenseMap.set(d, (dailyExpenseMap.get(d) || 0) + Number(e.amount));
       });
       const dailyExpense = Array.from(dailyExpenseMap.entries()).map(([date, amount]) => ({ date, amount })).sort((a, b) => a.date.localeCompare(b.date));
@@ -298,23 +364,58 @@ export async function registerRoutes(
   
   app.post(api.categories.create.path, async (req, res) => {
     try {
-      const input = api.categories.create.input.parse(req.body);
+      const input = z
+        .object({
+          name: z.string().trim().min(1, "Name is required"),
+          type: z
+            .string()
+            .trim()
+            .toLowerCase()
+            .pipe(z.enum(["income", "expense"])),
+        })
+        .parse(req.body);
       const cat = await storage.createCategory(input);
       await storage.createAuditLog(req.user!.id, 'CREATE_CATEGORY', 'Category', cat.id);
       res.status(201).json(cat);
     } catch (e) {
-      res.status(400).json({ message: "Invalid request" });
+      console.error("Create category error:", e);
+      if (e instanceof z.ZodError) {
+        return res.status(400).json({
+          message: e.errors[0]?.message || "Invalid request",
+          field: e.errors[0]?.path?.join("."),
+        });
+      }
+      const message = e instanceof Error ? e.message : "Invalid request";
+      res.status(400).json({ message });
     }
   });
 
   app.put(api.categories.update.path, async (req, res) => {
     try {
-      const input = api.categories.update.input.parse(req.body);
+      const input = z
+        .object({
+          name: z.string().trim().min(1, "Name is required").optional(),
+          type: z
+            .string()
+            .trim()
+            .toLowerCase()
+            .pipe(z.enum(["income", "expense"]))
+            .optional(),
+        })
+        .parse(req.body);
       const cat = await storage.updateCategory(Number(req.params.id), input);
       await storage.createAuditLog(req.user!.id, 'UPDATE_CATEGORY', 'Category', cat.id);
       res.status(200).json(cat);
     } catch (e) {
-      res.status(400).json({ message: "Invalid request" });
+      console.error("Update category error:", e);
+      if (e instanceof z.ZodError) {
+        return res.status(400).json({
+          message: e.errors[0]?.message || "Invalid request",
+          field: e.errors[0]?.path?.join("."),
+        });
+      }
+      const message = e instanceof Error ? e.message : "Invalid request";
+      res.status(400).json({ message });
     }
   });
 

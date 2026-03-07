@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Layout } from "@/components/layout";
 import { useIncomes, useCreateIncome, useUpdateIncome, useDeleteIncome } from "@/hooks/use-income";
 import { useCategories } from "@/hooks/use-categories";
@@ -13,6 +13,8 @@ import { format } from "date-fns";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { confirmDelete } from "@/lib/alerts";
+import { getLast30DaysRange, getMonthRange } from "@/lib/date-range";
 
 const formSchema = z.object({
   amount: z.coerce.number().positive("Amount must be positive"),
@@ -24,7 +26,18 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>;
 
 export default function Income() {
-  const { data: incomes, isLoading } = useIncomes();
+  const [filterMode, setFilterMode] = useState<"last30" | "month">("last30");
+  const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
+
+  const dateFilter = useMemo(() => {
+    if (filterMode === "month") {
+      return getMonthRange(selectedMonth);
+    }
+
+    return getLast30DaysRange();
+  }, [filterMode, selectedMonth]);
+
+  const { data: incomes, isLoading } = useIncomes(dateFilter);
   const { data: categories } = useCategories();
   const incomeCategories = categories?.filter(c => c.type === 'income') || [];
   
@@ -65,8 +78,9 @@ export default function Income() {
     }
   };
 
-  const handleDelete = (id: number) => {
-    if (window.confirm("Delete this income record?")) {
+  const handleDelete = async (id: number) => {
+    const confirmed = await confirmDelete("income record");
+    if (confirmed) {
       deleteMutation.mutate(id);
     }
   };
@@ -81,12 +95,30 @@ export default function Income() {
           <p className="text-muted-foreground mt-1">Track your revenue streams.</p>
         </div>
 
-        <Dialog open={isOpen} onOpenChange={setIsOpen}>
-          <DialogTrigger asChild>
-            <Button onClick={openCreate} className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-500/20">
-              <Plus className="w-4 h-4 mr-2" /> Add Income
-            </Button>
-          </DialogTrigger>
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-center w-full sm:w-auto">
+          <Button
+            type="button"
+            variant={filterMode === "last30" ? "default" : "outline"}
+            onClick={() => setFilterMode("last30")}
+            className="sm:w-auto"
+          >
+            Last 30 Days
+          </Button>
+          <Input
+            type="month"
+            value={selectedMonth}
+            onChange={(e) => {
+              setSelectedMonth(e.target.value);
+              setFilterMode("month");
+            }}
+            className="sm:w-[180px]"
+          />
+          <Dialog open={isOpen} onOpenChange={setIsOpen}>
+            <DialogTrigger asChild>
+              <Button onClick={openCreate} className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-500/20">
+                <Plus className="w-4 h-4 mr-2" /> Add Income
+              </Button>
+            </DialogTrigger>
           <DialogContent className="sm:max-w-[425px] bg-card border-border/50">
             <DialogHeader>
               <DialogTitle>{editingId ? "Edit Income" : "Add Income"}</DialogTitle>
@@ -128,7 +160,8 @@ export default function Income() {
               </Button>
             </form>
           </DialogContent>
-        </Dialog>
+          </Dialog>
+        </div>
       </div>
 
       <div className="rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden shadow-sm">
